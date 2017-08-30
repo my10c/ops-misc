@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+#
+# Copyright (c) BadAssOps / Luc Suryo
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#	* Redistributions of source code must retain the above copyright
+#	notice, this list of conditions and the following disclaimer.
+#	* Redistributions in binary form must reproduce the above copyright
+#	notice, this list of conditions and the following disclaimer in the
+#	documentation and/or other materials provided with the distribution.
+#	* Neither the name of the <organization> nor the
+#	names of its contributors may be used to endorse or promote products
+#	derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSEcw
+# ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+# DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+#*
+#* File			:	xtar/ttar/ctar
+#*
+#* Description	:	Command to extract, view or create a GNU TAR file
+#*
+#* _author		:	Luc I. Suryo (luc@suryo.com)
+#*
+#* Version		:	3.3
+#*
+#* Date			:	Feb 11, 2011
+#*
+#* History		:
+#* 		Date:				_author:							Info:
+#*		Jun 2, 1993			LIS					First Release
+#*		Jun 15, 2001		LIS					Added bzip support
+#*		April 13, 2002		LIS					From shell alias into script
+#*		Aug 23, 2010		LIS					New license
+#*		Sep 3, 2010			LIS					Implemented create of archive file
+#*		Feb 11, 2011		LIS					Abort creating archive if one of given file does not exist
+#*							LIS					And bug fix: the given file(s) exist
+#*		March 2, 2013		LIS					Added xz support
+#*		May 27, 2014		LIS					Adjusted to BSD license and make badassops standards
+#
+#* NOTE				The script behave differently, based on the script name!
+#*					ttar (view), ctar (create) and xtar (extract)
+#*
+
+# Global Variable
+_program=`basename $0`
+_version='3.3'
+_copyright="1993 - `date "+%Y"` (c) badaddops "
+_license='License BSD, http://www.freebsd.org/copyright/freebsd-license.html'
+_author='Luc Suryo'
+_email='luc@suryo.com'
+_summary='Command to extract, view or create a GNU TAR file, uncompress or compressed (gzip, bzip and xv)'
+_info="$_program $_version\n$_copyright\n$_license\n\nWritten by $_author <$_email>\n$_summary\n"
+_prompt_yn='Do you want to Cancel the operation? (default set to y) [y/n]:'
+_cancelled="\nProcess has been cancelled on your request."
+
+_datafiles= ; _vebose= ; _mode= ; _given_files=
+_archive_name=
+
+# Set interrupt since this may not be interrupted!
+trap inthandler 1 2 3 4 5 9 10 12 15 23 24 25
+
+function set_echo_flag() {
+	case `uname -s`
+	in
+		SunOS)	_echo_flag=	;		_tar_cmd=gtar ;;
+		Darwin)	_echo_flag='-e' ;	_tar_cmd=/usr/local/bin/tar ;;
+		Linux)	_echo_flag='-e' ;	_tar_cmd=tar ;;
+	esac
+	return 0
+}
+set_echo_flag
+
+function what_am_i() {
+	case `basename $0`
+	in
+		ttar)	_mode=1 ;;
+		xtar)	_mode=2 ;;
+		ctar)	_mode=3 ;;
+	esac
+	return 0
+}
+
+function inthandler() {
+	echo $_echo_flag "Program is about to be aborted, are your sure?\n${_prompt_yn}"
+	read _answer
+	case $_answer in
+		"n"|"N"|"no"|"NO")
+			echo $_echo_flag 'Abort cancelled, continuing...'  ; return ;;
+		*)
+			stty echo ; echo $_echo_flag "$_cancelled" ; exit 0 ;;
+	esac
+	# remove file if we are creating an archive
+	if (( $_mode == 3 )) ; then
+		[[ -f $_archive_name ]] && rm -f $_archive_name >/dev/null 2>%1
+	fi 
+	return 0
+}
+
+function help() {
+	trap 1 2 3 4 5 9 10 12 15 23 24 25
+	echo $_echo_flag "$_info"
+	case $_mode
+	in
+		3) echo $_echo_flag "Usage : $_program [-h] [-v] archive-name file1 ... fileX" ;;
+		*) echo $_echo_flag "Usage : $_program [-h] [-v] file1 ... fileX" ;;
+	esac
+	echo $_echo_flag "-h:\tThis help page."
+	echo $_echo_flag "-v:\tEnable verbose, always applies if extracting an archive."
+	echo $_echo_flag "\tThis option **must** come first!."
+	(( $_mode == 3 )) && echo $_echo_flag "\n\t *** Creates archive will always be GNU zipped and have the tar.gz extension. ***"
+	exit 0
+}
+
+function process_files() {
+	_count=0
+	while test -n "$1"
+	do
+		if [ $_count -eq 0 -a $_mode -eq 3 ] ; then
+			# create archive first file is the archive it self and should not exist
+			let _count++
+			_archive_name="${1}.tar.gz"
+			if [[ -f $_archive_name ]] ; then
+				echo $_echo_flag "\n\t\033[1m\033[32mGiven archive file: $_archive_name already exist!"
+				echo $_echo_flag "\tPress Control-C to cancel or enter to continue...\033[0m\n"
+				read inkey
+			fi
+		else
+			if [ ! -f $1 -a ! -d $1 ] ; then
+				echo $_echo_flag "\n\t\033[1m\033[31m*** Given file/directory: $1 does not exist or is not accesible!"
+				echo $_echo_flag "\tOperation on this file has been skiped...***\033[0m\n"
+			else
+				[[ "$1" != "$_archive_name" ]] && _datafiles="$_datafiles $1"
+			fi
+		fi
+		shift
+	done
+	return 0
+}
+
+function compress_type() {
+	_ext="${1##*.}"
+	case "$_ext"
+	in
+		'tgz')	_extra_flag="z" ;;	
+		'gz')	_extra_flag="z" ;;	
+		'bz2')	_extra_flag="j" ;;
+		'xz')	_extra_flag="J" ;;
+		*)		_extra_flag="" ;;
+	esac
+	return 0
+}
+
+function extract_archive() {
+	for _datafile in $_datafiles
+	do
+		echo $_echo_flag "= START: $_datafile = \n"
+		compress_type $_datafile
+		$_tar_cmd -"$_vebose""$_extra_flag"pxf $_datafile
+		echo $_echo_flag "\n= END: $_datafile = \n"
+	done
+	return 0
+}
+
+function view_archive() {
+	for _datafile in $_datafiles
+	do
+		echo $_echo_flag "= START: $_datafile = \n"
+		compress_type $_datafile
+		$_tar_cmd -"$_vebose""$_extra_flag"ptf $_datafile
+		echo $_echo_flag "\n= END: $_datafile = \n"
+	done
+	return 0
+}
+
+function create_archive() {
+	echo $_echo_flag "= START: $_archive_name = \n"
+ 	$_tar_cmd -"$_vebose"zcf $_archive_name $_datafiles
+	echo $_echo_flag "\n= END: $_archive_name = \n"
+	return 0
+}
+
+function get_given_options() {
+	while [[ -n "$1" ]]
+	do
+		case "$1"
+		in
+			'-h')			help ;;
+			'-v')			_vebose="v" ;		shift ;;
+			'--version')	echo $_echo_flag "$_version" ; exit 0 ;;
+			*)				_given_files="$*";	break ;;
+		esac
+	done
+	if [[ -z "$_given_files" ]] ; then
+		echo "No file(s) was given..."
+		help
+	fi
+	process_files $_given_files
+	return 0
+}
+
+function main() {
+	what_am_i
+	get_given_options $*
+	case $_mode
+	in
+		1)	_vebose="v" ; view_archive;;
+		2)	extract_archive ;;
+		3)	create_archive $_given_files ;;
+	esac
+	trap 1 2 3 4 5 9 10 12 15 23 24 25
+	exit 0
+}
+main $*
